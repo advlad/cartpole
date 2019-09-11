@@ -7,4 +7,4 @@
 
 ## About
 
->This fork experiments whether LightGBM can be used to perform Q-Learning.
+>This fork is created for Iasi-AI Machine Learning workshop, to experiment whether shallow ML can be used to perform Q-Learning.
