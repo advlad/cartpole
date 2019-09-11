@@ -1,13 +1,14 @@
 import random
-import gym
-import numpy as np
+import warnings
 from collections import deque
 
-
+import gym
+import numpy as np
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.linear_model import SGDRegressor
 from sklearn.multioutput import MultiOutputRegressor
-from lightgbm import LGBMRegressor
+
 from scores.score_logger import ScoreLogger
-from sklearn.model_selection import train_test_split
 
 ENV_NAME = "CartPole-v1"
 
@@ -24,13 +25,18 @@ EXPLORATION_DECAY = 0.96
 
 class DQNSolver:
 
-    def __init__(self, observation_space, action_space):
+    def __init__(self, observation_space, action_space, is_partial_fit: bool = False):
         self.exploration_rate = EXPLORATION_MAX
 
         self.action_space = action_space
         self.memory = deque(maxlen=MEMORY_SIZE)
+        self._is_partial_fit = is_partial_fit
+        if is_partial_fit:
+            self.model = MultiOutputRegressor(SGDRegressor())
+        else:
+            # self.model = MultiOutputRegressor(LGBMRegressor(n_estimators=100, n_jobs=-1))
+            self.model = MultiOutputRegressor(RandomForestRegressor(max_depth=2, random_state=0, n_estimators=100))
 
-        self.model = MultiOutputRegressor(LGBMRegressor(n_estimators=100, n_jobs=-1))
         self.isFit = False
 
     def remember(self, state, action, reward, next_state, done):
@@ -66,7 +72,12 @@ class DQNSolver:
             
             X.append(list(state[0]))
             targets.append(q_values[0])
-        self.model.fit(X, targets)
+
+        if self._is_partial_fit:
+            self.model.partial_fit(X, targets)
+        else:
+            self.model.fit(X, targets)
+
         self.isFit = True
         self.exploration_rate *= EXPLORATION_DECAY
         self.exploration_rate = max(EXPLORATION_MIN, self.exploration_rate)
@@ -77,7 +88,7 @@ def cartpole():
     score_logger = ScoreLogger(ENV_NAME)
     observation_space = env.observation_space.shape[0]
     action_space = env.action_space.n
-    dqn_solver = DQNSolver(observation_space, action_space)
+    dqn_solver = DQNSolver(observation_space, action_space, is_partial_fit=False)
     run = 0
     while True:
         run += 1
@@ -101,4 +112,6 @@ def cartpole():
 
 
 if __name__ == "__main__":
-    cartpole()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        cartpole()
