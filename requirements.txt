@@ -2,3 +2,5 @@ numpy
 gym
 keras
 matplotlib
+jupyter
+scikit-learn
