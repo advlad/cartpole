@@ -4,7 +4,7 @@ from collections import deque
 
 import gym
 import numpy as np
-from sklearn.ensemble import RandomForestRegressor
+from sklearn.ensemble import RandomForestRegressor, AdaBoostRegressor
 from sklearn.linear_model import SGDRegressor
 from sklearn.multioutput import MultiOutputRegressor
 
@@ -13,9 +13,10 @@ from scores.score_logger import ScoreLogger
 ENV_NAME = "CartPole-v1"
 
 GAMMA = 0.95
-LEARNING_RATE = 0.001
+LEARNING_RATE = 0.001 # unused as we use Experience Replay type of Q-Learning
+# See more on Experience Replay here: https://datascience.stackexchange.com/questions/20535/what-is-experience-replay-and-what-are-its-benefits
 
-MEMORY_SIZE = 1000
+MEMORY_SIZE = 1000 # used only for Non-Incremental learning, i.e. partial_fit=False
 BATCH_SIZE = 20
 
 EXPLORATION_MAX = 1.0
@@ -25,17 +26,27 @@ EXPLORATION_DECAY = 0.96
 
 class DQNSolver:
 
-    def __init__(self, observation_space, action_space, is_partial_fit: bool = False):
+    def __init__(self, action_space, is_partial_fit: bool = False):
         self.exploration_rate = EXPLORATION_MAX
 
         self.action_space = action_space
         self.memory = deque(maxlen=MEMORY_SIZE)
         self._is_partial_fit = is_partial_fit
+
         if is_partial_fit:
-            self.model = MultiOutputRegressor(SGDRegressor())
+            # Here you can use only Incremental Models: https://scikit-learn.org/0.18/modules/scaling_strategies.html
+            regressor = SGDRegressor()
+            self.model = MultiOutputRegressor(regressor)
         else:
-            # self.model = MultiOutputRegressor(LGBMRegressor(n_estimators=100, n_jobs=-1))
-            self.model = MultiOutputRegressor(RandomForestRegressor(max_depth=2, random_state=0, n_estimators=100))
+            # Here you can use whatever regression model you want, simple or Incremental
+            # The sklearn regression models can be found by searching for "regress" at https://scikit-learn.org/stable/modules/classes.html
+
+            # Ex:
+            #regressor = RandomForestRegressor(max_depth=2, random_state=0, n_estimators=100)
+            #regressor = LGBMRegressor(n_estimators=100, n_jobs=-1)
+
+            regressor = AdaBoostRegressor(n_estimators=10)
+            self.model = MultiOutputRegressor(regressor)
 
         self.isFit = False
 
@@ -54,7 +65,13 @@ class DQNSolver:
     def experience_replay(self):
         if len(self.memory) < BATCH_SIZE:
             return
-        batch = random.sample(self.memory, int(len(self.memory)/1))
+        if self._is_partial_fit:
+            batch = list(self.memory)
+            # if we use Incremental Model, we don't have to keep whole memory, as we use just last batch
+            # and the rest of the history is stored within the model, indirectly through learning
+            self.memory = deque(maxlen=BATCH_SIZE)
+        else:
+            batch = random.sample(self.memory, int(len(self.memory)/1))
         X = []
         targets = []
         for state, action, reward, state_next, terminal in batch:
@@ -88,7 +105,7 @@ def cartpole():
     score_logger = ScoreLogger(ENV_NAME)
     observation_space = env.observation_space.shape[0]
     action_space = env.action_space.n
-    dqn_solver = DQNSolver(observation_space, action_space, is_partial_fit=False)
+    dqn_solver = DQNSolver(action_space, is_partial_fit=False)
     run = 0
     while True:
         run += 1
@@ -97,7 +114,8 @@ def cartpole():
         step = 0
         while True:
             step += 1
-            #env.render()
+            # comment next line for faster learning, without stopping to show the GUI
+            env.render()
             action = dqn_solver.act(state)
             state_next, reward, terminal, info = env.step(action)
             reward = reward if not terminal else -reward
