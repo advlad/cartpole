@@ -1,12 +1,14 @@
 import random
 import warnings
 from collections import deque
+from typing import List
 
 import gym
 import numpy as np
 from sklearn.ensemble import RandomForestRegressor, AdaBoostRegressor
 from sklearn.linear_model import SGDRegressor
 from sklearn.multioutput import MultiOutputRegressor
+from sklearn.tree import DecisionTreeRegressor, export_graphviz
 
 from scores.score_logger import ScoreLogger
 
@@ -16,8 +18,8 @@ GAMMA = 0.95
 LEARNING_RATE = 0.001 # unused as we use Experience Replay type of Q-Learning
 # See more on Experience Replay here: https://datascience.stackexchange.com/questions/20535/what-is-experience-replay-and-what-are-its-benefits
 
-MEMORY_SIZE = 1000 # used only for Non-Incremental learning, i.e. partial_fit=False
-BATCH_SIZE = 20
+MEMORY_SIZE = 5000 # used only for Non-Incremental learning, i.e. partial_fit=False
+BATCH_SIZE = 30
 
 EXPLORATION_MAX = 1.0
 EXPLORATION_MIN = 0.05
@@ -62,6 +64,32 @@ class DQNSolver:
             q_values = np.zeros(self.action_space).reshape(1, -1)
         return np.argmax(q_values[0])
 
+    def debug_batch(self, batch:List):
+        X = []
+        targets = []
+        for state, action, reward, state_next, terminal in batch:
+            q_update = reward
+            if not terminal:
+                if self.isFit:
+                    q_update = (reward + GAMMA * np.amax(self.model.predict(state_next)[0]))
+                else:
+                    q_update = reward
+            if self.isFit:
+                q_values = self.model.predict(state)
+            else:
+                q_values = np.zeros(self.action_space).reshape(1, -1)
+            q_values[0][action] = q_update
+
+            X.append(list(state[0]))
+            targets.append(q_values[0])
+
+        regressor = DecisionTreeRegressor(random_state=0)
+        model = MultiOutputRegressor(regressor)
+        clf = model.fit(X, targets)
+        my_regressor = model.estimators_[0]
+        export_graphviz(my_regressor, out_file='tree.dot')
+        return
+
     def experience_replay(self):
         if len(self.memory) < BATCH_SIZE:
             return
@@ -72,6 +100,7 @@ class DQNSolver:
             self.memory = deque(maxlen=BATCH_SIZE)
         else:
             batch = random.sample(self.memory, int(len(self.memory)/1))
+        self.debug_batch(batch)
         X = []
         targets = []
         for state, action, reward, state_next, terminal in batch:
@@ -105,7 +134,7 @@ def cartpole():
     score_logger = ScoreLogger(ENV_NAME)
     observation_space = env.observation_space.shape[0]
     action_space = env.action_space.n
-    dqn_solver = DQNSolver(action_space, is_partial_fit=False)
+    dqn_solver = DQNSolver(action_space, is_partial_fit=True)
     run = 0
     while True:
         run += 1
@@ -115,7 +144,7 @@ def cartpole():
         while True:
             step += 1
             # comment next line for faster learning, without stopping to show the GUI
-            env.render()
+            # env.render()
             action = dqn_solver.act(state)
             state_next, reward, terminal, info = env.step(action)
             reward = reward if not terminal else -reward
